@@ -1,5 +1,6 @@
 // benchmark.cu
-// Calls the ring-allreduce implementation with various buffer sizes and measures the latency
+// Calls the various ring all reduce implementations with various buffer sizes and measures the
+// latency while checking for correctness
 
 #include <assert.h>
 #include <cuda_runtime.h>
@@ -10,106 +11,21 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-// ! NOTE: use the same function name and interface for all implementations
-extern "C" void ring_allreduce(
-    float* inout_buf, int input_size, ncclComm_t comm, int rank, int n_ranks, cudaStream_t stream
-);
+#include "interface.h"
 
 
-
-// define macros to call cuda commands with error checking
-#define CUDA_CALL(cmd)                                                                       \
-    do {                                                                                     \
-        cudaError_t e = cmd;                                                                 \
-        if (e != cudaSuccess) {                                                              \
-            fprintf(stderr, "CUDA:%s:%d '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
-            exit(EXIT_FAILURE);                                                              \
-        }                                                                                    \
-    } while (0)
-
-#define NCCL_CALL(cmd)                                                                       \
-    do {                                                                                     \
-        ncclResult_t r = cmd;                                                                \
-        if (r != ncclSuccess) {                                                              \
-            fprintf(stderr, "NCCL:%s:%d '%s'\n", __FILE__, __LINE__, ncclGetErrorString(r)); \
-            exit(EXIT_FAILURE);                                                              \
-        }                                                                                    \
-    } while (0)
-
-
-
-struct ThreadArgs {
-    int rank;
-    int n_ranks;
-    int input_size;
-    int* devs;
-    ncclComm_t* comms;
-    int iters;
-    int warmup;
-    double* out_time;
+// TODO: add new implementations here
+static RingRunFunc impls[] = {
+    ring_naive,
 };
 
-// initialize input kernel: buf[i] = 100*rank + i
-__global__ void init_input_kernel(float* buf, int count, int rank) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < count) buf[idx] = 100.0f * rank + (float)idx;
-}
-
-// get current time
-static double now_sec() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double)tv.tv_sec + 1e-6 * (double)tv.tv_usec;
-}
-
-// thread function to call ring-allreduce on a rank and benchmark
-void* thread_fn(void* arg) {
-    ThreadArgs* a = (ThreadArgs*)arg;
-    int rank = a->rank;
-    int n_ranks = a->n_ranks;
-    int input_size = a->input_size;
-    int dev = a->devs[rank];
-    ncclComm_t comm = a->comms[rank];
-
-    CUDA_CALL(cudaSetDevice(dev));
-    cudaStream_t stream;
-    CUDA_CALL(cudaStreamCreate(&stream));
-
-
-    // initialize input for this rank at d_buf
-    float* d_buf = nullptr;
-    CUDA_CALL(cudaMalloc(&d_buf, input_size * sizeof(float)));
-
-    const int threads = 256;
-    int blocks = (input_size + threads - 1) / threads;
-    init_input_kernel<<<blocks, threads, 0, stream>>>(d_buf, input_size, rank);
-    CUDA_CALL(cudaGetLastError());
-    CUDA_CALL(cudaStreamSynchronize(stream));
-
-
-    // warmup
-    for (int i = 0; i < a->warmup; i++)
-        ring_allreduce(d_buf, input_size, comm, rank, n_ranks, stream);
-    CUDA_CALL(cudaStreamSynchronize(stream));
-
-
-    // benchmark
-    double t0 = now_sec();
-    for (int i = 0; i < a->iters; i++)
-        ring_allreduce(d_buf, input_size, comm, rank, n_ranks, stream);
-    CUDA_CALL(cudaStreamSynchronize(stream));
-    double t1 = now_sec();
-
-    if (rank == 0) *(a->out_time) = (t1 - t0) * 1e6 / (double)a->iters;  // µs per iter
-
-    CUDA_CALL(cudaFree(d_buf));
-    CUDA_CALL(cudaStreamDestroy(stream));
-    return nullptr;
-}
+static const char* impl_names[] = {
+    "naive",
+};
 
 
 
-// Usage: ./correctness <n_devices>
+// Usage: ./benchmark <n_devices>
 int main(int argc, char** argv) {
     // parse CLI
     if (argc < 2) {
@@ -122,7 +38,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // device list (device i = rank i)
+    // initialize device ranks (device[i] = rank[i])
     int devs[n_devices];
     for (int i = 0; i < n_devices; i++) devs[i] = i;
 
@@ -132,46 +48,75 @@ int main(int argc, char** argv) {
 
     // create output file
     FILE* f = fopen("results.csv", "w");
-    fprintf(f, "input_size,input_bytes,avg_us\n");
+    fprintf(f, "impl,input_size,input_bytes,avg_latency,throughput\n");
     fflush(f);
 
-    const int warmup = 20;
-    const int iters = 200;
+    const int n_warmup = 20;
+    const int n_iters = 200;
+    const float atol = 1e-3f;
     const int min_sz = 256;         // 1KB
     const int max_sz = 1073741824;  // 4GB
-    assert(max_sz <= 1073741824);   // otherwise won't fit, we use long below as *2 could overflow
+    assert(max_sz <= 1073741824);   // otherwise won't fit in int32
 
-    for (long input_size = min_sz; input_size <= max_sz; input_size *= 2) {
-        assert(input_size % n_devices == 0);
-        size_t bytes = (size_t)input_size * sizeof(float);
-        printf("\n=== Benchmarking input_size = %d floats (%zu bytes) ===\n", input_size, bytes);
+    const int n_impl = sizeof(impls) / sizeof(impls[0]);
+    for (int i = 0; i < n_impl; i++) {
+        printf("\n=== Running Implementation: %s ===\n", impl_names[i]);
 
-        pthread_t threads[n_devices];
-        ThreadArgs args[n_devices];
+        // use long as 1073741824*2 could overflow, meaning our for loop won't terminate correctly
+        for (long input_size = min_sz; input_size <= max_sz; input_size *= 2) {
+            size_t n_bytes = (size_t)input_size * sizeof(float);
+            printf("input_size = %d (%zu bytes), ", input_size, n_bytes);
 
-        double t_avg = 0.0;
-        for (int r = 0; r < n_devices; r++) {
-            args[r].rank = r;
-            args[r].n_ranks = n_devices;
-            args[r].input_size = input_size;
-            args[r].devs = devs;
-            args[r].comms = comms;
-            args[r].iters = iters;
-            args[r].warmup = warmup;
-            args[r].out_time = &t_avg;
+            // start thread for each GPU
+            auto impl = (void* (*)(void*))impls[i];
+            double avg_latency = 1.0;
 
-            int rc = pthread_create(&threads[r], nullptr, thread_fn, &args[r]);
-            if (rc) {
-                fprintf(stderr, "Failed to create thread %d\n", r);
-                exit(1);
+            pthread_t threads[n_devices];
+            RunArgs args[n_devices];
+            bool corrects[n_devices];
+            for (int r = 0; r < n_devices; r++) {
+                args[r].rank = r;
+                args[r].device = devs[r];
+                args[r].n_ranks = n_devices;
+                args[r].input_size = input_size;
+                args[r].comm = comms[r];
+                args[r].n_warmup = n_warmup;
+                args[r].n_iters = n_iters;
+                args[r].atol = atol;
+                args[r].correct = corrects + r;
+                args[r].avg_latency = &avg_latency;
+
+                int rc = pthread_create(&threads[r], nullptr, impl, &args[r]);
+                if (rc) {
+                    fprintf(stderr, "Failed to create thread %d\n", r);
+                    exit(1);
+                }
+            }
+
+            for (int r = 0; r < n_devices; r++) pthread_join(threads[r], nullptr);
+
+            bool all_correct = true;
+            for (int r = 0; r < n_devices; r++) all_correct &= corrects[r];
+            if (all_correct) {
+                double throughput = n_bytes / avg_latency;
+                fprintf(
+                    f,
+                    "%s,%d,%zu,%.3f,%.3f\n",
+                    impl_names[i],
+                    input_size,
+                    n_bytes,
+                    avg_latency,
+                    throughput
+                );
+                fflush(f);
+                printf(
+                    "average latency: %.3fµs, throughput: %.3fbytes/µs\n", avg_latency, throughput
+                );
+            } else {
+                printf("FAILED, stopping");
+                break;
             }
         }
-
-        for (int r = 0; r < n_devices; r++) pthread_join(threads[r], nullptr);
-
-        fprintf(f, "%d,%zu,%.3f\n", input_size, bytes, t_avg);
-        fflush(f);
-        printf("Average latency: %.3f µs\n", t_avg);
     }
 
     // cleanup

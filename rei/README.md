@@ -17,20 +17,14 @@ cd ~/CS5470/async-ring-allreduce/rei
 
 conda activate $PSCRATCH/project
 
-# compile
-nvcc -o correctness \
-    src/correctness.cu src/ringreduce.cu \
+# compile (TODO: add new implementations here to be compiled)
+nvcc -o benchmark \
+    src/benchmark.cu src/utils.cu \
+    src/naive_ringreduce.cu \
     -I$PSCRATCH/project/include \
     -L$PSCRATCH/project/lib \
     -lnccl -lpthread
-nvcc -o benchmark \
-    src/benchmark.cu src/ringreduce.cu \
-    -I$PSCRATCH/project/include \
-    -L$PSCRATCH/project/lib \
-    -lnccl -lpthread \
-    -O3
 
 # run
-LD_LIBRARY_PATH=$PSCRATCH/project/lib NCCL_DEBUG=WARN ./correctness 4 1048576
 LD_LIBRARY_PATH=$PSCRATCH/project/lib NCCL_DEBUG=WARN ./benchmark 4
 ```
