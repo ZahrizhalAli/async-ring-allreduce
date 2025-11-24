@@ -18,9 +18,10 @@ cd ~/CS5470/async-ring-allreduce/rei
 conda activate $PSCRATCH/project
 
 # compile (TODO: add new implementations here to be compiled)
+# NOTE: for the real benchmarking, compile with -DNDEBUG and -O2
 nvcc -o benchmark \
     src/benchmark.cu src/utils.cu \
-    src/nccl_ringreduce.cu src/naive_ringreduce.cu \
+    src/nccl_ringreduce.cu src/naive_ringreduce.cu src/pipelined_ringreduce.cu \
     -I$PSCRATCH/project/include \
     -L$PSCRATCH/project/lib \
     -lnccl -lpthread

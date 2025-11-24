@@ -3,13 +3,8 @@
 // latency while checking for correctness
 
 #include <assert.h>
-#include <cuda_runtime.h>
-#include <math.h>
-#include <nccl.h>
 #include <pthread.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
 
 #include "interface.h"
 
@@ -18,11 +13,13 @@
 static RingRunFunc impls[] = {
     ring_nccl,
     ring_naive,
+    ring_pipelined,
 };
 
 static const char* impl_names[] = {
     "nccl",
     "naive",
+    "pipelined",
 };
 
 

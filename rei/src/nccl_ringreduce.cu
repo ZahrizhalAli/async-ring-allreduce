@@ -32,15 +32,14 @@ void* ring_nccl(RunArgs* args) {
     int blocks = (input_size + threads - 1) / threads;
     init_input_kernel<<<blocks, threads, 0, stream>>>(d_inbuf, rank, input_size);
     CUDA_CALL(cudaGetLastError());
-    CUDA_CALL(cudaStreamSynchronize(stream));
 
     float* d_outbuf = nullptr;
     CUDA_CALL(cudaMalloc(&d_outbuf, input_size * sizeof(float)));
 
 
     // call nccl all-reduce
-    ncclAllReduce(d_inbuf, d_outbuf, input_size, ncclFloat, ncclSum, comm, stream);
-    cudaStreamSynchronize(stream);
+    NCCL_CALL(ncclAllReduce(d_inbuf, d_outbuf, input_size, ncclFloat, ncclSum, comm, stream));
+    CUDA_CALL(cudaStreamSynchronize(stream));
 
 
     // copy back result to host and verify output, short circuit if incorrect
@@ -53,15 +52,13 @@ void* ring_nccl(RunArgs* args) {
 
     // warmup
     for (int i = 0; i < args->n_warmup; i++)
-        ncclAllReduce(d_inbuf, d_outbuf, input_size, ncclFloat, ncclSum, comm, stream);
-    CUDA_CALL(cudaStreamSynchronize(stream));
+        NCCL_CALL(ncclAllReduce(d_inbuf, d_outbuf, input_size, ncclFloat, ncclSum, comm, stream));
 
 
     // benchmark
     double t0 = get_time();
     for (int i = 0; i < args->n_iters; i++)
-        ncclAllReduce(d_inbuf, d_outbuf, input_size, ncclFloat, ncclSum, comm, stream);
-    CUDA_CALL(cudaStreamSynchronize(stream));
+        NCCL_CALL(ncclAllReduce(d_inbuf, d_outbuf, input_size, ncclFloat, ncclSum, comm, stream));
     double t1 = get_time();
     if (rank == 0) *(args->avg_latency) = (t1 - t0) * 1e6 / (double)args->n_iters;  // µs per iter
 

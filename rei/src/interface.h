@@ -67,4 +67,4 @@ typedef void* (*RingRunFunc)(RunArgs* args);
 // TODO: add new implementations here
 void* ring_nccl(RunArgs* args);
 void* ring_naive(RunArgs* args);
-// void ring_pipelined(RunArgs* args);
+void* ring_pipelined(RunArgs* args);
