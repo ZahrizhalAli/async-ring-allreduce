@@ -81,8 +81,7 @@ static void ring_allreduce(
         );
         NCCL_CALL(ncclGroupEnd());
 
-        CUDA_CALL(cudaStreamSynchronize(streams[0]));
-        CUDA_CALL(cudaStreamSynchronize(streams[1]));
+        // CUDA_CALL(cudaStreamSynchronize(streams[(step + 1) % 2]));
     }
 
     // reduce (happens concurrently with first all gather)
@@ -99,8 +98,7 @@ static void ring_allreduce(
     NCCL_CALL(ncclRecv(d_outbuf + recv_off, chunk_size, ncclFloat, prev_rank, comm, streams[0]));
     NCCL_CALL(ncclGroupEnd());
 
-    CUDA_CALL(cudaStreamSynchronize(streams[0]));
-    CUDA_CALL(cudaStreamSynchronize(streams[1]));
+    // CUDA_CALL(cudaStreamSynchronize(streams[1]));
 
     for (int step = n_chunks - n_batches + 1; step < 2 * (n_chunks - n_batches); step++) {
         std::tie(send_off, recv_off) = get_offset(step, rank, n_chunks, n_batches, chunk_size);
