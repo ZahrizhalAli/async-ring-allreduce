@@ -28,7 +28,7 @@ nvcc -o benchmark \
 
 # Benchmark
 
-nvcc -O3 -DNDEBUG -o benchmark \
+nvcc -O2 -DNDEBUG -o benchmark \
     src/benchmark.cu src/utils.cu \
     src/nccl_ringreduce.cu src/naive_ringreduce.cu src/pipelined_ringreduce.cu \
     src/p2p_ringreduce.cu \
