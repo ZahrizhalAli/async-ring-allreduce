@@ -130,11 +130,15 @@ void* ring_naive(RunArgs* args) {
 
 
     // benchmark
-    double t0 = get_time();
-    for (int i = 0; i < args->n_iters; i++)
+    double* deltas = (double*)malloc(args->n_iters * sizeof(double));
+    for (int i = 0; i < args->n_iters; i++) {
+        double t0 = get_time();
         ring_allreduce(d_inbuf, d_outbuf, input_size, comm, stream);
-    double t1 = get_time();
-    if (rank == 0) *(args->avg_latency) = (t1 - t0) * 1e6 / (double)args->n_iters;  // µs per iter
+        double t1 = get_time();
+        deltas[i] = t1 - t0;
+    }
+    analyze_runtime(args, deltas);
+    free(deltas);
 
 
     // cleanup

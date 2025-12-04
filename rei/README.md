@@ -21,7 +21,8 @@ conda activate $PSCRATCH/project
 # NOTE: for the real benchmarking, compile with -DNDEBUG and -O2
 nvcc -o benchmark \
     src/benchmark.cu src/utils.cu \
-    src/nccl_ringreduce.cu src/naive_ringreduce.cu src/pipelined_ringreduce.cu \
+    src/nccl_ringreduce.cu src/naive_ringreduce.cu \
+    src/pipelined_ringreduce_async.cu src/pipelined_ringreduce_nccl.cu \
     -I$PSCRATCH/project/include \
     -L$PSCRATCH/project/lib \
     -lnccl -lpthread

@@ -15,13 +15,13 @@
 static RingRunFunc impls[] = {
     ring_nccl,
     ring_naive,
-    ring_pipelined,
+    ring_pipelined_async,
 };
 
 static const char* impl_names[] = {
-    "nccl",
-    "naive",
-    "pipelined",
+    "NCCL",
+    "Classic",
+    "Async",
 };
 
 
@@ -50,7 +50,10 @@ int main(int argc, char** argv) {
 
     // create output file
     FILE* f = fopen(filename.c_str(), "w");
-    fprintf(f, "impl,input_size,input_bytes,avg_latency,throughput\n");
+    fprintf(
+        f,
+        "impl,input_size,input_bytes,avg_latency,std_latency,min_latency,max_latency,throughput\n"
+    );
     fflush(f);
 
     const int n_warmup = 20;
@@ -72,6 +75,9 @@ int main(int argc, char** argv) {
             // start thread for each GPU
             auto impl = (void* (*)(void*))impls[i];
             double avg_latency = 1.0;
+            double std_latency = 0.0;
+            double min_latency = 0.0;
+            double max_latency = 0.0;
 
             pthread_t threads[n_devices];
             RunArgs args[n_devices];
@@ -84,6 +90,9 @@ int main(int argc, char** argv) {
                 args[r].atol = atol;
                 args[r].correct = corrects + r;
                 args[r].avg_latency = &avg_latency;
+                args[r].std_latency = &std_latency;
+                args[r].min_latency = &min_latency;
+                args[r].max_latency = &max_latency;
 
                 int rc = pthread_create(&threads[r], nullptr, impl, &args[r]);
                 if (rc) {
@@ -100,11 +109,14 @@ int main(int argc, char** argv) {
                 double throughput = n_bytes / avg_latency;
                 fprintf(
                     f,
-                    "%s,%d,%zu,%.3f,%.3f\n",
+                    "%s,%d,%zu,%.3f,%.3f,%.3f,%.3f,%.3f\n",
                     impl_names[i],
                     input_size,
                     n_bytes,
                     avg_latency,
+                    std_latency,
+                    min_latency,
+                    max_latency,
                     throughput
                 );
                 fflush(f);

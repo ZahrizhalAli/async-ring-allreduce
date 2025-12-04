@@ -29,17 +29,6 @@
 
 
 
-// initialize buf[i] = 100*rank + 100*i/input_size
-__global__ void init_input_kernel(float* buf, int rank, int input_size);
-
-// verify output[i] = 100*0 + 100*1 + ... 100*(n_ranks-1) + n_ranks*100*i/input_size
-bool check_correctness(float* h_res, int rank, int n_ranks, int input_size, float atol);
-
-// get current time
-double get_time();
-
-
-
 typedef struct {
     // all-reduce arguments
     int input_size;
@@ -50,7 +39,26 @@ typedef struct {
     float atol;
     bool* correct;
     double* avg_latency;
+    double* std_latency;
+    double* min_latency;
+    double* max_latency;
 } RunArgs;
+
+
+
+// initialize buf[i] = 100*rank + 100*i/input_size
+__global__ void init_input_kernel(float* buf, int rank, int input_size);
+
+// verify output[i] = 100*0 + 100*1 + ... 100*(n_ranks-1) + n_ranks*100*i/input_size
+bool check_correctness(float* h_res, int rank, int n_ranks, int input_size, float atol);
+
+// get current time in µs
+double get_time();
+
+// compute and record average, std, min, and max latency in µs
+void analyze_runtime(RunArgs* args, double* deltas);
+
+
 
 /** A common interface for the thread function that runs the ring algorithm for a rank.
  *
@@ -67,4 +75,5 @@ typedef void* (*RingRunFunc)(RunArgs* args);
 // TODO: add new implementations here
 void* ring_nccl(RunArgs* args);
 void* ring_naive(RunArgs* args);
-void* ring_pipelined(RunArgs* args);
+void* ring_pipelined_nccl(RunArgs* args);
+void* ring_pipelined_async(RunArgs* args);
