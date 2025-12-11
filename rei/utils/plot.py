@@ -43,7 +43,7 @@ def plot_scurve(input_file: str, output_file: str, title: str) -> None:
         dashes=True,
         linewidth=2.5,
         markersize=8,
-        palette="viridis"
+        palette="hls",
     )
     
     plt.xscale('log')
