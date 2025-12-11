@@ -1,4 +1,4 @@
-# AsyncAllReduce
+# Copied Rei's playground
 
 ## How to run
 
@@ -21,12 +21,26 @@ conda activate $PSCRATCH/project
 # NOTE: for the real benchmarking, compile with -DNDEBUG and -O2
 nvcc -o benchmark \
     src/benchmark.cu src/utils.cu \
-    src/nccl_ringreduce.cu src/naive_ringreduce.cu \
-    src/pipelined_ringreduce_async.cu src/pipelined_ringreduce_nccl.cu \
+    src/nccl_ringreduce.cu src/naive_ringreduce.cu src/pipelined_ringreduce.cu \
     -I$PSCRATCH/project/include \
     -L$PSCRATCH/project/lib \
     -lnccl -lpthread
 
-# run
+# Benchmark
+
+nvcc -O2 -DNDEBUG -o benchmark \
+    src/benchmark.cu src/utils.cu \
+    src/nccl_ringreduce.cu src/naive_ringreduce.cu src/pipelined_ringreduce.cu \
+    src/p2p_ringreduce.cu \
+    -I$PSCRATCH/project/include \
+    -L$PSCRATCH/project/lib \
+    -lnccl -lpthread
+
+
+# run for 4 gpus
 LD_LIBRARY_PATH=$PSCRATCH/project/lib NCCL_DEBUG=WARN ./benchmark 4 output.csv
+
+# run for 2 gpus
+LD_LIBRARY_PATH=$PSCRATCH/project/lib NCCL_DEBUG=WARN ./benchmark 2 output.csv
 ```
+

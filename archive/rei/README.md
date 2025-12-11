@@ -1,4 +1,4 @@
-# AsyncAllReduce
+# Rei's playground
 
 ## How to run
 
