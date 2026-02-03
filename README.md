@@ -1,5 +1,7 @@
 # AsyncAllReduce
 
+## Abstract 
+
 AllReduce is a core communication primitive in distributed machine learn-
 ing, underpinning both data parallelism and tensor parallelism by synchro-
 nizing model state across GPUs. Conventional implementations built on
@@ -53,4 +55,20 @@ nvcc -o benchmark \
 # Run Benchmark
 LD_LIBRARY_PATH=$PSCRATCH/project/lib NCCL_DEBUG=WARN ./benchmark 4 output.csv
 ```
+
+## Implementation Details
+
+In the classic AllReduce algorithm, a single CUDA stream and a single receive buffer are used to schedule the computation and communication serially. However, a single CUDA stream cannot run multiple operations asynchronously, thus being insufficient for our use case.
+
+To overcome this limitation, our algorithm leverages double buffering of the CUDA streams and data buffers to overlap communication and computation. More specifically, we alternate the stream and the data buffer every step, reducing the data in one stream and buffer while communicating in the other. To prevent reading a buffer before the chunk is ready, each GPU records an event on the stream after it finishes the data transfer, and the receiving GPU waits for the event to be posted before processing it. To also avoid deadlocks arising from a GPU posting events on another GPU that is yet to be initialized, a shared mutex is used and the first thread to acquire the mutex is tasked with initializing the event and buffer addresses of all the ranks participating in the AllReduce. This ensures all the GPUs are ready before communication starts, substituting the functionality of the ncclGroup.
+
+## Evaluation Methodology
+
+To evaluate our algorithm, we implemented the classic Ring AllReduce algorithm using
+ncclSend(), ncclRecv() and an element-wise addition kernel to use as our baseline. We use a single CUDA stream for communication and computation and leverage ncclGroups to avoid deadlocks.
+We evaluated each implementation for input sizes spanning 1KB to 8GB, doubling the size
+every iteration. For each iteration, we run the implementation once and check its output for correctness, then we run the implementation 200 times to warm up the GPU. Finally, we run the implementation another 200 times and record its average latency. We then divide the input size by the average latency to get the average throughput per GPU, which we plot against the input size to obtain our S curve.
+All benchmarks were run on Perlmutter with 4x NVIDIA (40GB) A100s connected via 4th
+generation NVLinks with a bandwidth of 25GB/s/direction (fully-connected topology). The
+code was compiled with -DNDEBUG -O2 flags using NVCC.
 
